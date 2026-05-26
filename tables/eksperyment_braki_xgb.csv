@@ -1,0 +1,4 @@
+Wariant,Cechy z HIGH_MISS,Imputacja HIGH_MISS,Liczba cech,AUC (val 2015)
+a) Imputacja medianą (globalna),Tak,Tak,26,0.8865
+b) Natywna obsługa braków przez XGBoost,Tak,Natywna XGB,26,0.8871
+c) Usunięcie zmiennych z wysokim % braków,Nie,—,22,0.8799

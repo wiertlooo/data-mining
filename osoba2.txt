@@ -1,0 +1,197 @@
+================================================================================
+OSOBA 2 – Data Preparation & Feature Engineering
+Projekt: Data Mining – Prognozowanie opadów deszczu w Australii (weatherAUS)
+================================================================================
+
+PLIK SKRYPTU: data_prep.py
+
+────────────────────────────────────────────────────────────────────────────────
+CO ZOSTAŁO ZROBIONE (kolejność kroków w skrypcie)
+────────────────────────────────────────────────────────────────────────────────
+
+1. WCZYTANIE DANYCH
+   - Wczytano weatherAUS.csv (145 460 wierszy, 23 kolumny)
+   - Kolumna Date skonwertowana do formatu datetime
+
+2. CZYSZCZENIE – USUNIĘCIE WIERSZY BEZ ZMIENNEJ CELU
+   - Usunięto 3 267 wierszy (2.25%) bez wartości RainTomorrow
+   - Pozostało: 142 193 wierszy do dalszej analizy
+   - Zmienna celu zbinaryzowana: RainTomorrow Yes/No -> 1/0 (kolumna "target")
+
+3. INŻYNIERIA CECH
+   a) Cechy z daty:
+      - Year  – rok pomiaru
+      - Month – miesiąc pomiaru (1–12)
+      - Season – pora roku na półkuli południowej (odwrócona):
+          Lato   = grudzień, styczeń, luty
+          Jesień = marzec, kwiecień, maj
+          Zima   = czerwiec, lipiec, sierpień
+          Wiosna = wrzesień, październik, listopad
+
+   b) Kierunki wiatru -> reprezentacja cykliczna sin/cos:
+      - WindGustDir_sin, WindGustDir_cos
+      - WindDir9am_sin,  WindDir9am_cos
+      - WindDir3pm_sin,  WindDir3pm_cos
+      (zmapowane na kąty co 22.5°, oryginalne kolumny usunięte)
+
+   c) Cechy syntetyczne (różnicowe):
+      - TempRange      = MaxTemp - MinTemp
+      - PressureChange = Pressure3pm - Pressure9am
+      - HumidityChange = Humidity3pm - Humidity9am
+
+   d) Binaryzacja:
+      - RainToday: Yes/No -> 1/0 (float, NaN zachowane do imputacji)
+
+4. PODZIAŁ CZASOWY TRAIN / VAL / TEST
+   - Train:      lata <= 2014  ->  98 988 obs. (22.5% Yes)
+   - Walidacja:  rok 2015      ->  17 231 obs. (21.2% Yes)
+   - Test:       rok 2016      ->  17 508 obs. (23.9% Yes)
+   - Rok 2017 wyłączony (niepełny – tylko I półrocze, brak sezonowości)
+
+5. IMPUTACJA BRAKÓW
+   - Zmienne numeryczne: mediana per (Location, Month) – imputacja sezonowa
+     lokalna; jeśli grupa pusta – fallback do globalnej mediany z train
+   - Dopasowanie (fit) wyłącznie na zbiorze treningowym (no data leakage)
+   - Po imputacji: 0 braków w X_train
+
+6. WINSORYZACJA (obsługa wartości odstających)
+   - Clipping na 1. i 99. percentylu (obliczonych na train)
+   - Zastosowana do wszystkich zmiennych numerycznych
+   - Decyzja: winsoryzacja zamiast usuwania wierszy (zachowanie rozmiaru zbioru)
+
+7. KODOWANIE I STANDARYZACJA (scikit-learn ColumnTransformer)
+   - OneHotEncoder: Location (49 kategorii) + Season (4 kategorie)
+     parametr handle_unknown='ignore' (odporność na nowe wartości w test)
+   - StandardScaler: wszystkie zmienne numeryczne (26 cech)
+   - Łącznie: 79 cech wyjściowych
+
+8. EKSPERYMENT WŁASNY – WKŁAD WŁASNY (rozdział 4.1 dokumentu)
+   Pytanie badawcze: jak obsługa braków w zmiennych z bardzo wysokim
+   odsetkiem braków wpływa na jakość modelu?
+   Zmienne: Sunshine (48%), Evaporation (43%), Cloud3pm (41%), Cloud9am (38%)
+
+   Porównano 3 warianty (model: XGBoost, domyślne hiperparametry):
+   a) Imputacja medianą globalną          -> AUC = 0.8865
+   b) Natywna obsługa braków przez XGBoost -> AUC = 0.8871  <- NAJLEPSZA
+   c) Usunięcie zmiennych z > 38% braków  -> AUC = 0.8799
+
+   Wniosek: XGBoost radzi sobie z brakami natywnie (missing = osobna gałąź
+   drzewa), co daje minimalnie wyższy AUC niż imputacja. Usunięcie zmiennych
+   wyraźnie pogarsza wyniki – zmienne te niosą wartościową informację.
+   Rekomendacja: w pipeline Osób 3 i 4 zostawić zmienne z brakami bez
+   imputacji dla XGBoost/LightGBM; dla sieci neuronowej (MLP) użyć imputacji.
+
+9. EKSPORT ZBIORÓW DANYCH
+   Lokalizacja: ./prepared/
+   - X_train.pkl / X_train.csv  (98 988 x 79)
+   - X_val.pkl   / X_val.csv    (17 231 x 79)
+   - X_test.pkl  / X_test.csv   (17 508 x 79)
+   - y_train.pkl / y_train.csv
+   - y_val.pkl   / y_val.csv
+   - y_test.pkl  / y_test.csv
+   - preprocessor.pkl  (wytrenowany ColumnTransformer)
+
+   Tabele pomocnicze (./tables/):
+   - eksperyment_braki_xgb.csv  – wyniki eksperymentu własnego
+   - cechy_po_przetworzeniu.csv – lista 79 cech z typem i średnią
+
+   Wykres (./figures/):
+   - 10_eksperyment_braki_xgb.png – bar chart AUC dla 3 wariantów
+
+────────────────────────────────────────────────────────────────────────────────
+JAK WCZYTAĆ DANE W KOLEJNYCH SKRYPTACH (Osoba 3 i Osoba 4)
+────────────────────────────────────────────────────────────────────────────────
+
+  import joblib
+  X_train = joblib.load('prepared/X_train.pkl')
+  X_val   = joblib.load('prepared/X_val.pkl')
+  X_test  = joblib.load('prepared/X_test.pkl')
+  y_train = joblib.load('prepared/y_train.pkl')
+  y_val   = joblib.load('prepared/y_val.pkl')
+  y_test  = joblib.load('prepared/y_test.pkl')
+
+  # Lub z CSV:
+  import pandas as pd
+  X_train = pd.read_csv('prepared/X_train.csv')
+
+────────────────────────────────────────────────────────────────────────────────
+INSTRUKCJA PISANIA ROZDZIAŁU 4 W DOKUMENCIE WORD
+────────────────────────────────────────────────────────────────────────────────
+
+ROZDZIAŁ 4 – PRZYGOTOWANIE DANYCH
+
+--- 4.1 Czyszczenie i obsługa braków ---
+
+Napisz, że:
+- Usunięto 3 267 wierszy (2.25%) bez wartości zmiennej celu RainTomorrow.
+- Do dalszej analizy pozostało 142 193 obserwacji.
+- Zastosowano imputację sezonową per (Location, Month): dla każdej pary
+  (stacja, miesiąc) obliczono medianę z danych treningowych; jeśli dana
+  kombinacja nie miała żadnej obserwacji – użyto globalnej mediany treningowej.
+  Zapobiega to wyciekowi informacji z przyszłości (fit wyłącznie na train).
+- Wartości odstające obsłużono przez winsoryzację: każda zmienna numeryczna
+  przycięta do [1. percentyla, 99. percentyla] obliczonego na zbiorze
+  treningowym. Decyzja o przycinaniu (a nie usuwaniu) wynikała z konieczności
+  zachowania rozmiaru zbioru.
+
+TABELA 2 (eksperyment własny – wkład własny):
+  Wstaw tabelę z pliku: tables/eksperyment_braki_xgb.csv
+  Kolumny: Wariant | Cechy z HIGH_MISS | Imputacja | Liczba cech | AUC (val)
+  Opisz: najlepszy okazał się wariant b (natywna obsługa XGBoost, AUC=0.8871),
+  gorszy o 0.006 pp od usunięcia zmiennych, lepszy o 0.0006 od imputacji.
+  Rekomendacja: dla XGBoost/LightGBM (Osoba 3) – natywna obsługa;
+                dla MLP (Osoba 4) – imputacja medianą.
+
+WYKRES: wstaw figures/10_eksperyment_braki_xgb.png
+Podpis: "Rysunek X. Porównanie strategii obsługi zmiennych z wysokim odsetkiem
+        braków – XGBoost, walidacja na roku 2015."
+
+--- 4.2 Inżynieria cech ---
+
+Napisz, że:
+- Z kolumny Date wyodrębniono: rok (Year), miesiąc (Month) oraz porę roku
+  (Season) z uwzględnieniem odwróconego kalendarza półkuli południowej
+  (lato australijskie = grudzień–luty).
+- Trzy zmienne kierunku wiatru (WindGustDir, WindDir9am, WindDir3pm)
+  przekształcono na pary (sin, cos) odpowiadającego kąta w stopniach.
+  Reprezentacja cykliczna eliminuje błąd liniowych modeli, które traktowałyby
+  N (0°) i NNE (22.5°) jako bardzo odległe od N i NNW (337.5°).
+- Trzy nowe cechy różnicowe: TempRange (zakres temperatury doby),
+  PressureChange (zmiana ciśnienia 9:00→15:00), HumidityChange
+  (zmiana wilgotności 9:00→15:00). Cechy te bezpośrednio kodują
+  dynamikę warunków atmosferycznych w ciągu dnia – ważny sygnał frontu.
+- RainToday (Yes/No) zbinaryzowane na 1/0.
+
+--- 4.3 Podział na zbiory ---
+
+Napisz, że:
+- Zastosowano podział czasowy (time-based split), aby odzwierciedlić
+  realny scenariusz prognostyczny i uniknąć wycieku informacji.
+- Train:     obserwacje z lat 2008–2014  (98 988 obs., 22.5% Yes)
+- Walidacja: rok 2015                    (17 231 obs., 21.2% Yes)
+- Test:      rok 2016                    (17 508 obs., 23.9% Yes)
+- Rok 2017 wyłączony: zawiera tylko I półrocze (brak lata australijskiego
+  XII–II), co prowadziłoby do zawyżonego sezonowego niezbalansowania oceny.
+- Naturalnie zachowana proporcja klas ~22% Yes we wszystkich zbiorach.
+
+TABELA: zamieść tabelę podziału:
+  Zbiór | Lata | Liczba obs. | % RainTomorrow=Yes
+  Train      | <=2014 | 98 988  | 22.5%
+  Walidacja  | 2015   | 17 231  | 21.2%
+  Test       | 2016   | 17 508  | 23.9%
+
+--- KODOWANIE I STANDARYZACJA (można umieścić w 4.2 lub jako osobny akapit) ---
+
+Napisz, że:
+- Zmienne kategoryczne Location (49 kategorii) i Season (4 kategorie)
+  zakodowano metodą One-Hot Encoding.
+- Wszystkie zmienne numeryczne (26) znormalizowano StandardScalerem
+  (µ=0, σ=1), dopasowanym wyłącznie na zbiorze treningowym.
+- Cały pipeline zaimplementowany jako scikit-learn ColumnTransformer,
+  zapisany jako prepared/preprocessor.pkl – gotowy do użycia przez
+  Osoby 3 i 4 bez ponownego trenowania.
+- Łączna liczba cech wejściowych dla modeli: 79.
+
+================================================================================
+END OF FILE
+================================================================================

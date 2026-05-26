@@ -1,0 +1,5 @@
+Strategia,AUC,Różnica vs baseline
+1. Globalna mediana wszędzie,0.8696833737282541,baseline
+2. Per Location wszędzie,0.8717086797254308,+0.20 pp
+"3. HYBRYDA: Sunshine globalnie, reszta per Loc",0.8719667987493396,+0.23 pp
+4. Usunięcie zmiennych z brakami >30%,0.8575386415682141,-1.21 pp
